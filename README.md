@@ -1,8 +1,10 @@
 # GRIDLINE
 
-Daily math crossword suite — Cross, Cages, Line, and Stack — set by Nina.
+Daily math crossword suite — Cross, Cages, Line, and Stack — set by **Nina**.
 
-No accounts. Puzzles generate on device. Daily boards use a UTC date seed so every player gets the same puzzle.
+No accounts. Puzzles generate on your device. Daily boards use a UTC date seed so every player gets the same puzzle.
+
+Play: [gridline-nu.vercel.app](https://gridline-nu.vercel.app)
 
 ## Run locally
 
@@ -27,4 +29,4 @@ Settings → Diagnostics runs 20 Easy and Medium generators per mode through the
 
 ## Deploy
 
-TanStack Start + Vite. `npm run build` emits Vercel Build Output via Nitro (`preset: vercel`). Source lives at [generationn015-cmyk/gridline](https://github.com/generationn015-cmyk/gridline).
+TanStack Start + Vite. `npm run build` emits Vercel Build Output via Nitro (`preset: vercel`). Production: [gridline-nu.vercel.app](https://gridline-nu.vercel.app). Source: [generationn015-cmyk/gridline](https://github.com/generationn015-cmyk/gridline).
