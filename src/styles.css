@@ -164,3 +164,113 @@
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 55%, transparent);
   }
 }
+
+.game-tile {
+  transition:
+    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.game-tile:active {
+  transform: scale(0.98);
+}
+
+.mini-board {
+  width: 5.5rem;
+}
+
+.mini-cell {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 1px;
+  background: var(--color-cell);
+}
+
+.mini-digit {
+  background: var(--color-cell-on);
+}
+
+.mini-op {
+  background: color-mix(in oklab, var(--color-accent) 55%, var(--color-cell));
+}
+
+.mini-black {
+  background: var(--color-black-square);
+}
+
+.mini-cage-a {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.mini-cage-b {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.mini-cage-c {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-accent) 40%, var(--color-border));
+}
+
+.mini-line {
+  width: 0.55rem;
+  height: 0.72rem;
+  flex: 1 1 0;
+  aspect-ratio: auto;
+  border-radius: 2px;
+}
+
+.mini-correct {
+  background: var(--color-accent);
+}
+
+.mini-present {
+  background: color-mix(in oklab, var(--color-warn) 80%, var(--color-cell));
+}
+
+.mini-absent {
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.focus-line {
+  background: color-mix(in oklab, var(--color-cell-on) 70%, var(--color-cell));
+}
+
+.cage-lit {
+  background: color-mix(in oklab, var(--color-accent) 12%, var(--color-cell));
+}
+
+.cell-notes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-subtle);
+}
+
+.cell-notes .on {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+@keyframes cell-lock {
+  0% {
+    background-color: color-mix(in oklab, var(--color-accent) 38%, var(--color-cell));
+  }
+  100% {
+    background-color: var(--color-cell);
+  }
+}
+
+.cell-pulse {
+  animation: cell-lock 720ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+

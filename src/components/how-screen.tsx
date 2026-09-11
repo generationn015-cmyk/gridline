@@ -1,14 +1,19 @@
 import { ChevronLeft } from "lucide-react";
 import { NinaMark } from "@/components/nina-mark";
 import { Button } from "@/components/ui/button";
+import { BRAND } from "@/lib/brand";
 import { useGame } from "@/store/game-store";
 
 export function HowScreen() {
-  const { setView } = useGame();
+  const { howReturn, setView, unpause } = useGame();
+  const back = () => {
+    if (howReturn === "play") unpause();
+    else setView(howReturn || "home");
+  };
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-12">
       <header className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" aria-label="Back" onClick={() => setView("home")}>
+        <Button variant="ghost" size="icon" aria-label="Back" onClick={back}>
           <ChevronLeft className="size-5" />
         </Button>
         <h1 className="font-display text-2xl">How to play</h1>
@@ -17,10 +22,10 @@ export function HowScreen() {
         <section className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-border bg-surface p-4">
           <NinaMark />
           <div>
-            <h2 className="font-display text-lg text-fg">Nina</h2>
+            <h2 className="font-display text-lg text-fg">{BRAND.name}</h2>
             <p className="mt-1">
-              Nina is the setter. She writes every Cross, Cages, Line, and Stack. A name and a voice — not a
-              mascot. Daily boards are hers for the UTC day.
+              {BRAND.name} is the setter. She writes every Cross, Cages, Line, and Stack. A name and a
+              voice — not a mascot. Daily boards are hers for the UTC day.
             </p>
           </div>
         </section>
@@ -32,15 +37,16 @@ export function HowScreen() {
             multi-digit numbers (these boards use one digit per cell).
           </p>
           <p>
-            Evaluation defaults to left-to-right, the way Nina files them. Switch to standard order of
-            operations in Settings — it applies to the next board.
+            Evaluation defaults to left-to-right, the way {BRAND.name} files them. Switch to standard order
+            of operations in Settings — it applies to the next board. Pencil notes live in the corners.
           </p>
         </section>
         <section>
           <h2 className="font-display text-lg text-fg">Cages</h2>
           <p>
             An n×n Latin square: digits 1–n, no repeat in a row or column. Bold cages show a target and an
-            operation. The digits in a cage must make that target. One-cell cages are givens in all but name.
+            operation. The digits in a cage must make that target. Select a cell to light the whole cage.
+            One-cell cages are givens in all but name.
           </p>
         </section>
         <section>
@@ -55,14 +61,15 @@ export function HowScreen() {
           <h2 className="font-display text-lg text-fg">Stack</h2>
           <p>
             Three chained equations. The result of each line is the first digit of the next. Fill the digits.
-            Nina already checked they work.
+            {BRAND.name} already checked they work.
           </p>
         </section>
         <section>
           <h2 className="font-display text-lg text-fg">Daily</h2>
           <p>
             One shared puzzle per mode per UTC day, from a date seed. Streak counts when Cross, Cages, and
-            Line are all filed. Hints are recorded. Practice is infinite.
+            Line are all filed. Hints are recorded. Practice is infinite. Unfinished boards wait under
+            Continue.
           </p>
         </section>
       </article>

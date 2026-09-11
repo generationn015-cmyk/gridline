@@ -65,6 +65,10 @@ export function ninaComposing(): string {
   return "Nina is composing…";
 }
 
+export function ninaCombo(): string {
+  return "Two lines at once. That's the work.";
+}
+
 export function modeTitle(mode: Mode): string {
   switch (mode) {
     case "cross":
@@ -88,5 +92,18 @@ export function modeDeck(mode: Mode): string {
       return "A hidden equation. Color, not luck.";
     case "line2d":
       return "Three chained equations sharing digits.";
+  }
+}
+
+export function modeHow(mode: Mode): string {
+  switch (mode) {
+    case "cross":
+      return "Operators are already placed. Fill the empty cells so every across and every down line is a true equation. Pencil marks live in the corners.";
+    case "cages":
+      return "Digits 1–n, no repeats in a row or column. Each cage must hit its target with the shown operation. Select a cell to light the whole cage.";
+    case "line":
+      return "A hidden eight-character equation. Six tries. Olive is right glyph, right place. A bar underneath means it belongs somewhere else.";
+    case "line2d":
+      return "Three chained equations. The result of each line is the first digit of the next. Fill the digits.";
   }
 }

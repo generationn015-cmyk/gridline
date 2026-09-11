@@ -1,27 +1,23 @@
-# GRIDLINE
+# NINA
 
 Daily math crossword suite — Cross, Cages, Line, and Stack — set by **Nina**.
 
-No accounts. Puzzles generate on your device. Daily boards use a UTC date seed so every player gets the same puzzle.
+No accounts. Puzzles generate on your device. Daily boards use a UTC date seed so every player gets the same puzzle. Progress lives in this browser under Continue.
 
-Play: [gridline-nu.vercel.app](https://gridline-nu.vercel.app)
+## Games
 
-## Run locally
-
-```bash
-npm install
-npm run dev
-```
-
-`npm run build` then `npm run preview` for the production bundle.
-
-## Daily seeding
-
-Seed string: `YYYY-MM-DD|mode|size|difficulty` hashed into a Mulberry32 RNG. Reload the same UTC day to get the identical board.
+- **Cross** — a crossword of digits. Every across and down line is a true equation.
+- **Cages** — Latin square with cages (KenKen).
+- **Line** — a hidden eight-character equation, six tries.
+- **Stack** — three chained equations sharing digits.
 
 ## Nina
 
 Nina is the setter. She writes the boards, comments on hints, and files wins. She is a name and a voice, not a mascot.
+
+## Saves
+
+Versioned local save (`nina.v2`). Daily and practice are separate slots. Export and import from Settings. Unfinished boards resume from Continue.
 
 ## Diagnostics
 
@@ -29,4 +25,4 @@ Settings → Diagnostics runs 20 Easy and Medium generators per mode through the
 
 ## Deploy
 
-TanStack Start + Vite. `npm run build` emits Vercel Build Output via Nitro (`preset: vercel`). Production: [gridline-nu.vercel.app](https://gridline-nu.vercel.app). Source: [generationn015-cmyk/gridline](https://github.com/generationn015-cmyk/gridline).
+TanStack Start + Vite. `npm run build` emits Vercel Build Output via Nitro (`preset: vercel`).

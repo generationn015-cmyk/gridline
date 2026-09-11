@@ -7,12 +7,16 @@ export function CagesBoard({
   values,
   selected,
   conflicts,
+  notes,
+  pulse,
   onSelect,
 }: {
   puzzle: CagesPuzzle;
   values: (number | null)[][];
   selected: { r: number; c: number } | null;
   conflicts: boolean[][] | null;
+  notes: Record<string, number[]>;
+  pulse: string[];
   onSelect: (r: number, c: number) => void;
 }) {
   const n = puzzle.size;
@@ -22,6 +26,10 @@ export function CagesBoard({
     const [r, c] = cells[0]!;
     labelAt.set(`${r},${c}`, cageLabel(cage));
   }
+  const activeCage = selected
+    ? puzzle.cages.find((g) => g.cells.some(([a, b]) => a === selected.r && b === selected.c))
+    : null;
+  const inCage = new Set((activeCage?.cells ?? []).map(([a, b]) => `${a},${b}`));
 
   return (
     <div
@@ -41,17 +49,23 @@ export function CagesBoard({
           const val = values[r]![c];
           const bad = conflicts?.[r]?.[c];
           const lab = labelAt.get(`${r},${c}`);
+          const key = `${r},${c}`;
+          const marks = notes[key] ?? [];
+          const pulsed = pulse.includes(key);
+          const lit = inCage.has(key);
           return (
             <button
-              key={`${r}-${c}`}
+              key={key}
               role="gridcell"
               aria-label={`Row ${r + 1} column ${c + 1}${lab ? `, cage ${lab}` : ""}${val !== null ? `, ${val}` : ", empty"}`}
               aria-selected={isSel}
               onClick={() => onSelect(r, c)}
               className={cn(
                 "relative aspect-square bg-cell font-display text-xl sm:text-2xl text-fg",
+                lit && "cage-lit",
                 isSel && "bg-cell-on",
                 bad && "text-danger",
+                pulsed && "cell-pulse",
               )}
               style={{
                 boxShadow: [
@@ -70,11 +84,25 @@ export function CagesBoard({
                   {lab}
                 </span>
               )}
-              <span className="grid-cell">{val ?? ""}</span>
+              <span className="grid-cell">
+                {val ?? (marks.length ? <Notes marks={marks} max={n} /> : "")}
+              </span>
             </button>
           );
         }),
       )}
     </div>
+  );
+}
+
+function Notes({ marks, max }: { marks: number[]; max: number }) {
+  return (
+    <span className="cell-notes" aria-hidden>
+      {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+        <span key={n} className={marks.includes(n) ? "on" : undefined}>
+          {marks.includes(n) ? n : ""}
+        </span>
+      ))}
+    </span>
   );
 }

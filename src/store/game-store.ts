@@ -1,15 +1,25 @@
 import { create } from "zustand";
 import { sfx, setMuted, unlockAudio } from "@/lib/audio";
+import { BRAND } from "@/lib/brand";
 import { dailyDifficulty, dailySize, generatePuzzle } from "@/lib/game/generate";
-import { ninaCheck, ninaHint, ninaLose, ninaStart, ninaWin } from "@/lib/game/nina";
-import type { EvalMode } from "@/lib/game/math";
+import { ninaCheck, ninaCombo, ninaHint, ninaLose, ninaStart, ninaWin } from "@/lib/game/nina";
 import type { Difficulty, Mode, PlayKind, Puzzle } from "@/lib/game/types";
 import {
+  SAVE_VERSION,
+  bestKey,
+  defaultProfile,
   defaultSettings,
   defaultStats,
+  emptySave,
+  exportSave,
+  importSave,
   loadSave,
+  runSlot,
   writeSave,
-  type DailyEntry,
+  type ContinuePtr,
+  type JournalEntry,
+  type Profile,
+  type RunState,
   type Settings,
   type Stats,
 } from "@/lib/persist";
@@ -34,62 +44,55 @@ import {
   scoreLine,
   validEquation,
 } from "@/lib/game/line";
-import type { LineMark } from "@/lib/game/types";
 
-export type View = "home" | "play" | "settings" | "diagnostics" | "how";
+export type View = "splash" | "home" | "setup" | "play" | "settings" | "diagnostics" | "how" | "journal";
 
-export interface LineState {
-  guesses: string[];
-  current: string;
-  marks: LineMark[][];
-  revealed: boolean;
-}
-
-interface Session {
-  puzzle: Puzzle;
-  mode: Mode;
-  kind: PlayKind;
-  difficulty: Difficulty;
-  date: string;
-  startedAt: number;
-  elapsedMs: number;
-  running: boolean;
-  hints: number;
-  nina: string;
-  won: boolean;
-  lost: boolean;
+export interface Session extends RunState {
   conflicts: boolean[][] | null;
-  // grid modes
-  values: (number | null)[][];
-  selected: { r: number; c: number } | null;
-  history: (number | null)[][][];
-  future: (number | null)[][][];
-  // line
-  line: LineState | null;
+  pulse: { cells: string[]; combo: boolean } | null;
 }
 
 interface GameState {
   hydrated: boolean;
   view: View;
+  howReturn: View;
   settings: Settings;
   stats: Stats;
+  profile: Profile;
+  journal: JournalEntry[];
+  runs: Record<string, RunState>;
+  continuePtr: ContinuePtr | null;
   session: Session | null;
+  setupMode: Mode | null;
   composing: boolean;
+  paused: boolean;
+  notesMode: boolean;
   flashWin: boolean;
   hydrate: () => void;
   persist: () => void;
+  persistRun: () => void;
   setView: (v: View) => void;
+  openHow: (from?: View) => void;
   patchSettings: (p: Partial<Settings>) => void;
+  dismissSplash: () => void;
+  openSetup: (mode: Mode, kind?: PlayKind) => void;
+  resume: (slot?: string) => void;
   start: (opts: {
     mode: Mode;
     kind: PlayKind;
     size?: number;
     difficulty?: Difficulty;
+    forceNew?: boolean;
   }) => void;
-  backHome: () => void;
+  pause: () => void;
+  unpause: () => void;
+  quitHome: () => void;
+  restartBoard: () => void;
   tick: (dt: number) => void;
   selectCell: (r: number, c: number) => void;
   enterDigit: (d: number | null) => void;
+  toggleNote: (d: number) => void;
+  setNotesMode: (on: boolean) => void;
   moveSel: (dr: number, dc: number) => void;
   undo: () => void;
   redo: () => void;
@@ -101,6 +104,11 @@ interface GameState {
   lineBackspace: () => void;
   shareText: () => string;
   recordWin: () => void;
+  markHowSeen: (mode: Mode) => void;
+  resetProgress: () => void;
+  exportJson: () => string;
+  importJson: (json: string) => void;
+  clearPulse: () => void;
 }
 
 function cloneGrid(g: (number | null)[][]): (number | null)[][] {
@@ -126,32 +134,165 @@ function firstEmpty(values: (number | null)[][], puzzle: Puzzle): { r: number; c
   return values.length ? { r: 0, c: 0 } : null;
 }
 
+function toRun(s: Session): RunState {
+  return {
+    slot: s.slot,
+    puzzle: s.puzzle,
+    mode: s.mode,
+    kind: s.kind,
+    difficulty: s.difficulty,
+    date: s.date,
+    startedAt: s.startedAt,
+    elapsedMs: s.elapsedMs,
+    running: s.running,
+    hints: s.hints,
+    nina: s.nina,
+    won: s.won,
+    lost: s.lost,
+    values: s.values,
+    selected: s.selected,
+    history: s.history.slice(-40),
+    future: s.future.slice(0, 20),
+    line: s.line,
+    notes: s.notes,
+  };
+}
+
+function fromRun(run: RunState): Session {
+  return { ...run, notes: run.notes ?? {}, conflicts: null, pulse: null };
+}
+
+function buzz(on: boolean) {
+  if (!on || typeof navigator === "undefined" || !navigator.vibrate) return;
+  navigator.vibrate(8);
+}
+
+function pulseFor(puzzle: Puzzle, prev: (number | null)[][], next: (number | null)[][], r: number, c: number) {
+  const cells: string[] = [];
+  let units = 0;
+  if (puzzle.kind === "cross") {
+    const rowDone =
+      puzzle.cells[r]!.every((cell, cc) => cell.type !== "digit" || next[r]![cc] !== null) &&
+      puzzle.cells[r]!.some((cell, cc) => cell.type === "digit" && prev[r]![cc] === null);
+    const colDone =
+      puzzle.cells.every((row, rr) => row[c]!.type !== "digit" || next[rr]![c] !== null) &&
+      puzzle.cells.some((row, rr) => row[c]!.type === "digit" && prev[rr]![c] === null);
+    if (rowDone) {
+      units += 1;
+      puzzle.cells[r]!.forEach((cell, cc) => {
+        if (cell.type === "digit") cells.push(`${r},${cc}`);
+      });
+    }
+    if (colDone) {
+      units += 1;
+      puzzle.cells.forEach((row, rr) => {
+        if (row[c]!.type === "digit") cells.push(`${rr},${c}`);
+      });
+    }
+  } else if (puzzle.kind === "cages") {
+    const cage = puzzle.cages.find((g) => g.cells.some(([a, b]) => a === r && b === c));
+    if (cage) {
+      const nowFull = cage.cells.every(([a, b]) => next[a]![b] !== null);
+      const wasFull = cage.cells.every(([a, b]) => prev[a]![b] !== null);
+      const ok = nowFull && cage.cells.every(([a, b]) => next[a]![b] === puzzle.solution[a]![b]);
+      if (nowFull && !wasFull && ok) {
+        units = 1;
+        for (const [a, b] of cage.cells) cells.push(`${a},${b}`);
+      }
+    }
+  } else if (puzzle.kind === "line2d") {
+    const rowDone = next[r]!.every((v) => v !== null) && prev[r]!.some((v) => v === null);
+    if (rowDone) {
+      units = 1;
+      for (let cc = 0; cc < next[r]!.length; cc++) cells.push(`${r},${cc}`);
+    }
+  }
+  if (!cells.length) return null;
+  return { cells: [...new Set(cells)], combo: units >= 2 };
+}
+
 export const useGame = create<GameState>((set, get) => ({
   hydrated: false,
-  view: "home",
+  view: "splash",
+  howReturn: "home",
   settings: defaultSettings,
   stats: defaultStats,
+  profile: defaultProfile,
+  journal: [],
+  runs: {},
+  continuePtr: null,
   session: null,
+  setupMode: null,
   composing: false,
+  paused: false,
+  notesMode: false,
   flashWin: false,
 
   hydrate() {
     const save = loadSave();
-    set({ settings: save.settings, stats: save.stats, hydrated: true });
+    set({
+      settings: save.settings,
+      stats: save.stats,
+      profile: save.profile,
+      journal: save.journal,
+      runs: save.runs,
+      continuePtr: save.continue,
+      hydrated: true,
+      view: "splash",
+    });
     if (typeof document !== "undefined") {
       document.documentElement.classList.toggle("light", save.settings.theme === "light");
       document.documentElement.classList.toggle("dark", save.settings.theme !== "light");
+      document.documentElement.classList.toggle("reduce-motion", save.settings.reduceMotion);
     }
     setMuted(!save.settings.sound);
   },
 
   persist() {
-    const { settings, stats } = get();
-    writeSave({ version: 1, settings, stats });
+    const { settings, stats, profile, journal, runs, continuePtr, session } = get();
+    const nextRuns = { ...runs };
+    if (session && !session.won && !session.lost) nextRuns[session.slot] = toRun(session);
+    writeSave({
+      version: SAVE_VERSION,
+      profile,
+      settings,
+      stats,
+      journal,
+      continue: continuePtr,
+      runs: nextRuns,
+    });
+  },
+
+  persistRun() {
+    const s = get().session;
+    const runs = { ...get().runs };
+    let ptr = get().continuePtr;
+    if (!s) {
+      get().persist();
+      return;
+    }
+    if (s.won || s.lost) {
+      delete runs[s.slot];
+      if (ptr?.slot === s.slot) ptr = nextContinue(runs);
+    } else {
+      runs[s.slot] = toRun(s);
+      ptr = { slot: s.slot, at: Date.now() };
+    }
+    set({ runs, continuePtr: ptr });
+    get().persist();
   },
 
   setView(v) {
-    set({ view: v });
+    set({ view: v, paused: false });
+  },
+
+  openHow(from) {
+    set({ howReturn: from ?? get().view, view: "how", paused: true });
+    const s = get().session;
+    if (s && !s.won && !s.lost) {
+      set({ session: { ...s, running: false } });
+      get().persistRun();
+    }
   },
 
   patchSettings(p) {
@@ -162,16 +303,58 @@ export const useGame = create<GameState>((set, get) => ({
       document.documentElement.classList.toggle("dark", settings.theme !== "light");
     }
     if (p.sound !== undefined) setMuted(!p.sound);
+    if (p.reduceMotion !== undefined) {
+      document.documentElement.classList.toggle("reduce-motion", settings.reduceMotion);
+    }
     get().persist();
   },
 
-  start({ mode, kind, size, difficulty }) {
+  dismissSplash() {
+    const profile = { ...get().profile, firstLaunchDone: true };
+    set({ profile, view: "home" });
+    get().persist();
+  },
+
+  openSetup(mode, kind) {
+    const settings = {
+      ...get().settings,
+      lastMode: mode,
+      lastKind: kind ?? get().settings.lastKind,
+    };
+    set({ setupMode: mode, view: "setup", settings });
+    get().persist();
+  },
+
+  resume(slot) {
+    const id = slot ?? get().continuePtr?.slot;
+    if (!id) return;
+    const run = get().runs[id];
+    if (!run || run.won || run.lost) return;
+    unlockAudio();
+    set({
+      session: fromRun({ ...run, running: true }),
+      view: "play",
+      paused: false,
+      notesMode: false,
+      flashWin: false,
+      continuePtr: { slot: id, at: Date.now() },
+    });
+    get().persist();
+  },
+
+  start({ mode, kind, size, difficulty, forceNew }) {
     unlockAudio();
     const settings = get().settings;
     const diff = difficulty ?? (kind === "daily" ? dailyDifficulty() : settings.lastDifficulty);
     const sz = size ?? (kind === "daily" ? dailySize(mode) : settings.lastSize[mode]);
     const date = todayUtc();
-    set({ composing: true, flashWin: false });
+    const slot = runSlot({ mode, kind, date, size: sz, difficulty: diff });
+    const existing = get().runs[slot];
+    if (existing && !existing.won && !existing.lost && !forceNew) {
+      get().resume(slot);
+      return;
+    }
+    set({ composing: true, flashWin: false, paused: false, notesMode: false });
     window.setTimeout(() => {
       const puzzle = generatePuzzle({
         mode,
@@ -184,6 +367,7 @@ export const useGame = create<GameState>((set, get) => ({
       });
       const values = initValues(puzzle);
       const session: Session = {
+        slot,
         puzzle,
         mode,
         kind,
@@ -197,6 +381,7 @@ export const useGame = create<GameState>((set, get) => ({
         won: false,
         lost: false,
         conflicts: null,
+        pulse: null,
         values,
         selected: firstEmpty(values, puzzle),
         history: [],
@@ -205,11 +390,14 @@ export const useGame = create<GameState>((set, get) => ({
           puzzle.kind === "line"
             ? { guesses: [], current: "", marks: [], revealed: false }
             : null,
+        notes: {},
       };
+      const stats = { ...get().stats, started: get().stats.started + 1 };
       set({
         session,
         composing: false,
         view: "play",
+        stats,
         settings: {
           ...settings,
           lastMode: mode,
@@ -218,17 +406,62 @@ export const useGame = create<GameState>((set, get) => ({
           lastSize: { ...settings.lastSize, [mode]: sz },
         },
       });
-      get().persist();
+      get().persistRun();
     }, 40);
   },
 
-  backHome() {
-    set({ view: "home", session: null, flashWin: false });
+  pause() {
+    const s = get().session;
+    if (!s || s.won || s.lost) return;
+    set({ paused: true, session: { ...s, running: false } });
+    get().persistRun();
+  },
+
+  unpause() {
+    const s = get().session;
+    if (!s || s.won || s.lost) return;
+    set({ paused: false, session: { ...s, running: true }, view: "play" });
+  },
+
+  quitHome() {
+    get().persistRun();
+    set({ view: "home", session: null, paused: false, flashWin: false, notesMode: false });
+  },
+
+  restartBoard() {
+    const s = get().session;
+    if (!s) return;
+    const values = initValues(s.puzzle);
+    set({
+      paused: false,
+      notesMode: false,
+      session: {
+        ...s,
+        values,
+        history: [],
+        future: [],
+        conflicts: null,
+        pulse: null,
+        notes: {},
+        hints: 0,
+        elapsedMs: 0,
+        won: false,
+        lost: false,
+        running: true,
+        selected: firstEmpty(values, s.puzzle),
+        line:
+          s.puzzle.kind === "line"
+            ? { guesses: [], current: "", marks: [], revealed: false }
+            : s.line,
+        nina: ninaStart(s.mode, s.kind === "daily"),
+      },
+    });
+    get().persistRun();
   },
 
   tick(dt) {
     const s = get().session;
-    if (!s || !s.running || s.won || s.lost) return;
+    if (!s || !s.running || s.won || s.lost || get().paused) return;
     set({ session: { ...s, elapsedMs: s.elapsedMs + dt } });
   },
 
@@ -245,6 +478,10 @@ export const useGame = create<GameState>((set, get) => ({
   enterDigit(d) {
     const s = get().session;
     if (!s || s.won || s.lost || !s.selected) return;
+    if (get().notesMode && d !== null) {
+      get().toggleNote(d);
+      return;
+    }
     const { r, c } = s.selected;
     if (s.puzzle.kind === "cross") {
       const cell = s.puzzle.cells[r]![c]!;
@@ -252,34 +489,63 @@ export const useGame = create<GameState>((set, get) => ({
     }
     const next = cloneGrid(s.values);
     next[r]![c] = d;
-    // Stack: keep shared chain digits in sync
     if (s.puzzle.kind === "line2d") {
       if (c === 2 && r < 2) next[r + 1]![0] = d;
       if (c === 0 && r > 0) next[r - 1]![2] = d;
     }
+    const notes = { ...s.notes };
+    delete notes[`${r},${c}`];
     if (get().settings.sound) sfx.place();
+    buzz(get().settings.haptics);
     const history = [...s.history, cloneGrid(s.values)].slice(-80);
     let won = false;
     if (s.puzzle.kind === "cross") won = isCrossWin(s.puzzle, next);
     if (s.puzzle.kind === "cages") won = isCagesWin(s.puzzle, next);
     if (s.puzzle.kind === "line2d") won = isLine2dWin(s.puzzle, next);
+    const pulse = d !== null ? pulseFor(s.puzzle, s.values, next, r, c) : null;
+    if (pulse && get().settings.sound) sfx.tap();
     set({
       session: {
         ...s,
         values: next,
+        notes,
         history,
         future: [],
         conflicts: null,
+        pulse,
         won,
         running: !won,
-        nina: won ? ninaWin({ hints: s.hints, seconds: s.elapsedMs / 1000, daily: s.kind === "daily" }) : s.nina,
+        nina: won
+          ? ninaWin({ hints: s.hints, seconds: s.elapsedMs / 1000, daily: s.kind === "daily" })
+          : pulse?.combo
+            ? ninaCombo()
+            : s.nina,
       },
       flashWin: won,
     });
     if (won) {
       if (get().settings.sound) sfx.win();
       get().recordWin();
+    } else {
+      get().persistRun();
     }
+  },
+
+  toggleNote(d) {
+    const s = get().session;
+    if (!s || !s.selected || s.won) return;
+    const key = `${s.selected.r},${s.selected.c}`;
+    const cur = s.notes[key] ?? [];
+    const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort();
+    const notes = { ...s.notes };
+    if (next.length) notes[key] = next;
+    else delete notes[key];
+    set({ session: { ...s, notes } });
+    get().persistRun();
+  },
+
+  setNotesMode(on) {
+    set({ notesMode: on });
   },
 
   moveSel(dr, dc) {
@@ -317,8 +583,10 @@ export const useGame = create<GameState>((set, get) => ({
         history: s.history.slice(0, -1),
         future: [cloneGrid(s.values), ...s.future].slice(0, 80),
         conflicts: null,
+        pulse: null,
       },
     });
+    get().persistRun();
   },
 
   redo() {
@@ -334,6 +602,7 @@ export const useGame = create<GameState>((set, get) => ({
         conflicts: null,
       },
     });
+    get().persistRun();
   },
 
   clearBoard() {
@@ -344,12 +613,14 @@ export const useGame = create<GameState>((set, get) => ({
       session: {
         ...s,
         values,
+        notes: {},
         history: [...s.history, cloneGrid(s.values)].slice(-80),
         future: [],
         conflicts: null,
         selected: firstEmpty(values, s.puzzle),
       },
     });
+    get().persistRun();
   },
 
   hint() {
@@ -360,25 +631,11 @@ export const useGame = create<GameState>((set, get) => ({
     else if (s.puzzle.kind === "cages") hit = hintCages(s.puzzle, s.values);
     else if (s.puzzle.kind === "line2d") hit = hintLine2d(s.puzzle, s.values);
     else if (s.puzzle.kind === "line" && s.line) {
-      // Reveal one missing glyph in the current guess slot if empty, else skip.
       const eq = s.puzzle.equation;
       const cur = s.line.current;
-      let idx = cur.length;
-      if (idx >= eq.length) idx = [...eq].findIndex((ch, i) => cur[i] !== ch);
-      if (idx < 0) return;
-      const next = (cur + eq[idx]).slice(0, eq.length);
-      // Actually fill the next correct character at the current length if typing, else skip
-      const filled = cur.padEnd(idx, " ").split("");
-      filled[idx] = eq[idx]!;
-      const current = filled.join("").replace(/ /g, "").length === idx + 1
-        ? cur + eq[idx]
-        : eq.slice(0, idx + 1);
-      void current;
-      // Simpler: append the correct next char if current is a prefix, else don't
       let current2 = cur;
       if (eq.startsWith(cur) && cur.length < eq.length) current2 = cur + eq[cur.length];
       else {
-        // place first mismatch
         const chars = cur.split("");
         const i = chars.findIndex((ch, j) => ch !== eq[j]);
         if (i >= 0) chars[i] = eq[i]!;
@@ -393,6 +650,7 @@ export const useGame = create<GameState>((set, get) => ({
           line: { ...s.line, current: current2.slice(0, eq.length) },
         },
       });
+      get().persistRun();
       return;
     }
     if (!hit) return;
@@ -427,7 +685,7 @@ export const useGame = create<GameState>((set, get) => ({
     if (won) {
       if (get().settings.sound) sfx.win();
       get().recordWin();
-    }
+    } else get().persistRun();
   },
 
   check() {
@@ -474,6 +732,7 @@ export const useGame = create<GameState>((set, get) => ({
     set({
       session: { ...s, line: { ...s.line, current: s.line.current + glyph } },
     });
+    get().persistRun();
   },
 
   lineBackspace() {
@@ -482,6 +741,7 @@ export const useGame = create<GameState>((set, get) => ({
     set({
       session: { ...s, line: { ...s.line, current: s.line.current.slice(0, -1) } },
     });
+    get().persistRun();
   },
 
   lineSubmit() {
@@ -523,36 +783,48 @@ export const useGame = create<GameState>((set, get) => ({
       flashWin: won,
     });
     if (won) get().recordWin();
+    else get().persistRun();
   },
 
   shareText() {
     const s = get().session;
-    const { stats } = get();
-    if (!s) return "GRIDLINE";
-    const date = s.kind === "daily" ? s.date : "practice";
+    if (!s) return BRAND.title;
+    const size =
+      s.puzzle.kind === "cross" || s.puzzle.kind === "cages" ? `${s.puzzle.size}×${s.puzzle.size} ` : "";
+    const head = `${BRAND.title} · ${label(s.mode)} ${size}${s.difficulty}`;
     const time = formatClock(s.elapsedMs);
     if (s.puzzle.kind === "line" && s.line) {
       const rows = s.line.marks
         .map((m) => m.map((x) => (x === "correct" ? "■" : x === "present" ? "□" : "·")).join(""))
         .join("\n");
-      return `GRIDLINE  ${date}\nLine  ${s.line.guesses.length}/${s.puzzle.maxGuesses}${s.hints ? "  hint" : ""}\n${rows}\n— Nina`;
+      return `${BRAND.title} Line · ${s.line.guesses.length}/${s.puzzle.maxGuesses}${s.hints ? "  hint" : ""}\n${rows}`;
     }
-    return `GRIDLINE  ${date}\n${label(s.mode)}  ${s.won ? "✓" : "–"}  ${time}${s.hints ? `  ${s.hints} hint` : ""}\n— Nina`;
+    return `${head}\n${s.kind === "daily" ? s.date : "practice"}  ${s.won ? "✓" : "–"}  ${time}${s.hints ? `  ${s.hints} hint` : ""}`;
   },
 
   recordWin() {
     const s = get().session;
     if (!s) return;
-    const stats: Stats = { ...get().stats, daily: { ...get().stats.daily } };
+    const stats: Stats = {
+      ...get().stats,
+      daily: { ...get().stats.daily },
+      best: { ...get().stats.best },
+      badges: { ...get().stats.badges },
+      finished: get().stats.finished + 1,
+    };
+    const size = s.puzzle.kind === "cross" || s.puzzle.kind === "cages" ? s.puzzle.size : 0;
+    const bk = bestKey(s.mode, size, s.difficulty);
+    const prevBest = stats.best[bk];
+    if (prevBest == null || s.elapsedMs < prevBest) stats.best[bk] = s.elapsedMs;
+    const badges = { ...(stats.badges[s.mode] ?? {}) };
+    badges[s.difficulty] = true;
+    stats.badges[s.mode] = badges;
     if (s.kind === "daily") {
       const day = stats.daily[s.date] ?? {};
-      const entry: DailyEntry = {
-        solved: true,
-        timeMs: s.elapsedMs,
-        hints: s.hints,
-        guesses: s.line?.guesses.length,
+      stats.daily[s.date] = {
+        ...day,
+        [s.mode]: { solved: true, timeMs: s.elapsedMs, hints: s.hints, guesses: s.line?.guesses.length },
       };
-      stats.daily[s.date] = { ...day, [s.mode]: entry };
       const modes: Mode[] = ["cross", "cages", "line"];
       const all = modes.every((m) => stats.daily[s.date]?.[m]?.solved);
       if (all) {
@@ -568,10 +840,96 @@ export const useGame = create<GameState>((set, get) => ({
     } else {
       stats.practiceWins += 1;
     }
-    set({ stats });
+    const entry: JournalEntry = {
+      id: `${s.slot}|${s.startedAt}`,
+      at: Date.now(),
+      mode: s.mode,
+      kind: s.kind,
+      difficulty: s.difficulty,
+      size: size || undefined,
+      timeMs: s.elapsedMs,
+      hints: s.hints,
+    };
+    const journal = [entry, ...get().journal].slice(0, 20);
+    const runs = { ...get().runs };
+    delete runs[s.slot];
+    set({
+      stats,
+      journal,
+      runs,
+      continuePtr: nextContinue(runs),
+    });
     get().persist();
   },
+
+  markHowSeen(mode) {
+    const profile = { ...get().profile, seenHow: { ...get().profile.seenHow, [mode]: true } };
+    set({ profile });
+    get().persist();
+  },
+
+  resetProgress() {
+    const keep = get().settings;
+    const fresh = emptySave();
+    fresh.settings = { ...keep };
+    fresh.profile = { ...defaultProfile, firstLaunchDone: true, displayName: BRAND.name };
+    writeSave(fresh);
+    set({
+      stats: fresh.stats,
+      profile: fresh.profile,
+      journal: [],
+      runs: {},
+      continuePtr: null,
+      session: null,
+      view: "home",
+      paused: false,
+    });
+  },
+
+  exportJson() {
+    const { settings, stats, profile, journal, runs, continuePtr } = get();
+    return exportSave({
+      version: SAVE_VERSION,
+      profile,
+      settings,
+      stats,
+      journal,
+      continue: continuePtr,
+      runs,
+    });
+  },
+
+  importJson(json) {
+    const save = importSave(json);
+    writeSave(save);
+    set({
+      settings: save.settings,
+      stats: save.stats,
+      profile: save.profile,
+      journal: save.journal,
+      runs: save.runs,
+      continuePtr: save.continue,
+      session: null,
+      view: "home",
+    });
+    document.documentElement.classList.toggle("light", save.settings.theme === "light");
+    document.documentElement.classList.toggle("dark", save.settings.theme !== "light");
+    setMuted(!save.settings.sound);
+  },
+
+  clearPulse() {
+    const s = get().session;
+    if (!s || !s.pulse) return;
+    set({ session: { ...s, pulse: null } });
+  },
 }));
+
+function nextContinue(runs: Record<string, RunState>): ContinuePtr | null {
+  const open = Object.values(runs).filter((r) => !r.won && !r.lost);
+  if (!open.length) return null;
+  open.sort((a, b) => b.startedAt - a.startedAt);
+  return { slot: open[0]!.slot, at: Date.now() };
+}
 
 function label(mode: Mode) {
   return mode === "line2d" ? "Stack" : mode[0]!.toUpperCase() + mode.slice(1);
@@ -591,4 +949,10 @@ function yesterday(iso: string) {
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() - 1);
   return dt.toISOString().slice(0, 10);
+}
+
+export function nextDifficulty(d: Difficulty): Difficulty | null {
+  if (d === "easy") return "medium";
+  if (d === "medium") return "hard";
+  return null;
 }

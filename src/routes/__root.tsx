@@ -1,18 +1,20 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { BRAND } from "@/lib/brand";
 import appCss from "../styles.css?url";
-
-const APP_NAME = "GRIDLINE";
 
 export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: APP_NAME },
+      { title: BRAND.title },
       { name: "theme-color", content: "#0c0c0a" },
-      { name: "description", content: "GRIDLINE — daily math crosswords, cages, and equations. Set by Nina." },
+      {
+        name: "description",
+        content: `${BRAND.title} — daily math crosswords, cages, and equations. Set by ${BRAND.name}.`,
+      },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

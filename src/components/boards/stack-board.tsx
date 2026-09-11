@@ -6,12 +6,14 @@ export function StackBoard({
   values,
   selected,
   conflicts,
+  pulse,
   onSelect,
 }: {
   puzzle: Line2dPuzzle;
   values: (number | null)[][];
   selected: { r: number; c: number } | null;
   conflicts: boolean[][] | null;
+  pulse: string[];
   onSelect: (r: number, c: number) => void;
 }) {
   return (
@@ -24,6 +26,7 @@ export function StackBoard({
             value={values[r]![0]}
             selected={selected}
             conflict={!!conflicts?.[r]?.[0]}
+            pulse={pulse.includes(`${r},0`)}
             onSelect={onSelect}
             linked={r > 0}
           />
@@ -36,6 +39,7 @@ export function StackBoard({
             value={values[r]![1]}
             selected={selected}
             conflict={!!conflicts?.[r]?.[1]}
+            pulse={pulse.includes(`${r},1`)}
             onSelect={onSelect}
           />
           <div className="flex aspect-square items-center justify-center font-display text-2xl text-muted">=</div>
@@ -45,6 +49,7 @@ export function StackBoard({
             value={values[r]![2]}
             selected={selected}
             conflict={!!conflicts?.[r]?.[2]}
+            pulse={pulse.includes(`${r},2`)}
             onSelect={onSelect}
             linked={r < 2}
           />
@@ -61,6 +66,7 @@ function Digit({
   value,
   selected,
   conflict,
+  pulse,
   onSelect,
   linked,
 }: {
@@ -69,6 +75,7 @@ function Digit({
   value: number | null;
   selected: { r: number; c: number } | null;
   conflict: boolean;
+  pulse: boolean;
   onSelect: (r: number, c: number) => void;
   linked?: boolean;
 }) {
@@ -83,6 +90,7 @@ function Digit({
         "grid-cell relative flex aspect-square items-center justify-center rounded-[var(--radius-sm)] border border-border bg-cell font-display text-2xl",
         isSel && "border-accent bg-cell-on shadow-[inset_0_0_0_1px_var(--color-accent)]",
         conflict && "text-danger",
+        pulse && "cell-pulse",
         linked && "after:absolute after:inset-x-1/3 after:h-1 after:bg-accent/50",
         linked && c === 2 && "after:-bottom-2",
         linked && c === 0 && "after:-top-2",
